@@ -1,0 +1,110 @@
+name: "Deploy SvelteKit Static Sites"
+description: "Builds a SvelteKit static site and deploys it via SSH (rsync) or FTP."
+author: "cernel.io"
+
+inputs:
+  node-version:
+    description: "Version of Node.js to use for build."
+    required: false
+    default: "lts/*" # Or '20', '18', etc.
+
+  deploy-mode:
+    description: "Deployment mode: 'ssh' or 'ftp'."
+    required: true
+
+  build-dir:
+    description: "Where the built output lies"
+    required: false
+    default: "build"
+
+  server-host:
+    description: "Hostname or IP address of the deployment server."
+    required: true
+    
+  server-user:
+    description: "Username for connecting to the deployment server."
+    required: true
+    
+  server-path:
+    description: "Remote path on the server where files will be deployed."
+    required: true
+
+
+  server-ssh-key:
+    description: "Private SSH key for connecting to the server (if deploy-mode is 'ssh')."
+    required: false
+  server-fingerprint:
+    description: "Known hosts entry for the server (e.g., 'github.com ssh-rsa AAAA...')."
+    required: false
+
+
+  server-ftp-password:
+    description: "Password for FTP connection (if deploy-mode is 'ftp')."
+    required: false
+  ftp-dry-run:
+    description: "Perform a dry run for FTP deployment (does not upload files)."
+    required: false
+    default: "false"
+
+
+
+runs:
+  using: "composite"
+  steps:
+  
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install and Configure Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        check-latest: true
+
+    - name: Install Dependencies
+      shell: bash
+      run: |
+        npm ci
+
+    - name: Build the project
+      shell: bash
+      run: |
+        npm run build
+
+    - name: Install rsync (for SSH deploy)
+      if: inputs.deploy-mode == 'ssh'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y rsync
+
+    - name: Install SSH Key (for SSH deploy)
+      if: inputs.deploy-mode == 'ssh'
+      uses: shimataro/ssh-key-action@v2
+      with:
+        key: ${{ inputs.server-ssh-key }}
+        name: 'id_rsa' # Default filename for ssh-agent
+        known_hosts: ${{ inputs.server-fingerprint }}
+        if_key_exists: 'replace'
+
+    - name: Sync Build to Deployment via SSH
+      if: inputs.deploy-mode == 'ssh'
+      shell: bash
+      env:
+        SSH_USER: ${{ inputs.server-user }}
+        SERVER_HOST: ${{ inputs.server-host }}
+        REMOTE_PATH: ${{ inputs.server-path }}
+        BUILD_DIR: ${{ inputs.build-dir }}
+      run: |
+        echo "Syncing from ./${BUILD_DIR}/ to ${SSH_USER}@${SERVER_HOST}:${REMOTE_PATH}"
+        rsync -rltvch --delete --compress --chmod=D2755,F644 -e "ssh -vv" \
+          "./${BUILD_DIR}/" "${SSH_USER}@${SERVER}:${REMOTE_PATH}"
+
+    - name: Sync Build to Deployment via FTP
+      if: inputs.deploy-mode == 'ftp'
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      with:
+        server: ${{ inputs.server-host }}
+        username: ${{ inputs.server-user }}
+        password: ${{ inputs.server-ftp-password }}
+        local-dir: "./${{ inputs.source-dir }}/"
+        server-dir: ${{ inputs.server-path }}/
+        dry-run: ${{ inputs.ftp-dry-run }}
