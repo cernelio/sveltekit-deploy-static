@@ -78,8 +78,7 @@ runs:
         elif [[ "${{ inputs.deploy-mode }}" == "ftp" ]]; then
           if [[ -z "${{ inputs.server-ftp-host }}" || \
                 -z "${{ inputs.server-ftp-user }}" || \
-                -z "${{ inputs.server-ftp-password }}" || \
-                -z "${{ inputs.server-ftp-path }}" ]]; then
+                -z "${{ inputs.server-ftp-password }}" ]]; then
             echo "::error::For FTP deploy_mode, server-ftp-host, server-ftp-user, server-ftp-password, and server-ftp-path inputs are required."
             exit 1
           fi
@@ -161,7 +160,7 @@ runs:
         LOCAL_PATH: ${{ env.BUILD_DIR }}
         REMOTE_PATH: ${{ inputs.server-ssh-path }}
       run: |
-        echo "Syncing from ./${LOCAL_PATH}/ to ${USER}@${HOST}:${REMOTE_PATH}"
+        echo "Syncing from ${LOCAL_PATH} to ${USER}@${HOST}:${REMOTE_PATH}"
         rsync -rltvch --delete --compress --chmod=D2755,F644 -e "ssh -vv" \
           "${LOCAL_PATH}" "${USER}@${HOST}:${REMOTE_PATH}"
 
