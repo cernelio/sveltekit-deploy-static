@@ -33,7 +33,7 @@ inputs:
   server-ssh-key:
     description: "Private SSH key for connecting to the server (if deploy-mode is 'ssh')."
     required: false
-  server-fingerprint:
+  server-known-hosts:
     description: "Known hosts entry for the server (e.g., 'github.com ssh-rsa AAAA...')."
     required: false
 
