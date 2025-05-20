@@ -79,7 +79,7 @@ runs:
           if [[ -z "${{ inputs.server-ftp-host }}" || \
                 -z "${{ inputs.server-ftp-user }}" || \
                 -z "${{ inputs.server-ftp-password }}" ]]; then
-            echo "::error::For FTP deploy_mode, server-ftp-host, server-ftp-user, server-ftp-password, and server-ftp-path inputs are required."
+            echo "::error::For FTP deploy_mode, server-ftp-host, server-ftp-user and server-ftp-password inputs are required."
             exit 1
           fi
           echo "FTP inputs validated."
