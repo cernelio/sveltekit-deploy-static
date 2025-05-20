@@ -14,44 +14,75 @@ inputs:
 
   build-dir:
     description: "Where the built output lies"
-    required: false
-    default: "build"
+    required: true
 
-  server-host:
+
+  server-ssh-host:
     description: "Hostname or IP address of the deployment server."
-    required: true
-    
-  server-user:
+    required: false
+  server-ssh-user:
     description: "Username for connecting to the deployment server."
-    required: true
-    
-  server-path:
-    description: "Remote path on the server where files will be deployed."
-    required: true
-
-
+    required: false
   server-ssh-key:
     description: "Private SSH key for connecting to the server (if deploy-mode is 'ssh')."
     required: false
-  server-known-hosts:
+  server-ssh-known-hosts:
     description: "Known hosts entry for the server (e.g., 'github.com ssh-rsa AAAA...')."
     required: false
+  server-ssh-path:
+    description: "Remote path on the server where files will be deployed."
+    required: false
 
-
+  server-ftp-host:
+    description: "Hostname or IP address of the deployment server."
+    required: false
+  server-ftp-user:
+    description: "Username for connecting to the deployment server."
+    required: false
   server-ftp-password:
     description: "Password for FTP connection (if deploy-mode is 'ftp')."
     required: false
-  ftp-dry-run:
+  server-ftp-dry-run:
     description: "Perform a dry run for FTP deployment (does not upload files)."
     required: false
-    default: "false"
-
+    default: false
+  server-ftp-path:
+    description: "Remote path on the server where files will be deployed."
+    required: false
 
 
 runs:
   using: "composite"
   steps:
-  
+
+    - name: Validate Inputs
+      shell: bash
+      run: |
+        set -e
+        if [[ "${{ inputs.deploy-mode }}" == "ssh" ]]; then
+          if [[ -z "${{ inputs.server-ssh-host }}" || \
+                -z "${{ inputs.server-ssh-user }}" || \
+                -z "${{ inputs.server-ssh-key }}" || \
+                -z "${{ inputs.server-ssh-known-hosts }}" || \
+                -z "${{ inputs.server-ssh-path }}" ]]; then
+            echo "::error::For SSH deploy_mode, server-ssh-host, server-ssh-user, server-ssh-key, server-known-hosts, and server-ssh-path inputs are required."
+            exit 1
+          fi
+          echo "SSH inputs validated."
+        elif [[ "${{ inputs.deploy-mode }}" == "ftp" ]]; then
+          if [[ -z "${{ inputs.server-ftp-host }}" || \
+                -z "${{ inputs.server-ftp-user }}" || \
+                -z "${{ inputs.server-ftp-password }}" || \
+                -z "${{ inputs.server-ftp-path }}" ]]; then
+            echo "::error::For FTP deploy_mode, server-ftp-host, server-ftp-user, server-ftp-password, and server-ftp-path inputs are required."
+            exit 1
+          fi
+          echo "FTP inputs validated."
+        else
+          echo "::error::Invalid deploy_mode: ${{ inputs.deploy-mode }}. Must be 'ssh' or 'ftp'."
+          exit 1
+        fi
+      
     - name: Checkout Repository
       uses: actions/checkout@v4
 
@@ -82,29 +113,29 @@ runs:
       with:
         key: ${{ inputs.server-ssh-key }}
         name: 'id_rsa' # Default filename for ssh-agent
-        known_hosts: ${{ inputs.server-fingerprint }}
+        known_hosts: ${{ inputs.server-ssh-known-hosts }}
         if_key_exists: 'replace'
 
     - name: Sync Build to Deployment via SSH
       if: inputs.deploy-mode == 'ssh'
       shell: bash
       env:
-        SSH_USER: ${{ inputs.server-user }}
-        SERVER_HOST: ${{ inputs.server-host }}
-        REMOTE_PATH: ${{ inputs.server-path }}
-        BUILD_DIR: ${{ inputs.build-dir }}
+        USER: ${{ inputs.server-ssh-user }}
+        HOST: ${{ inputs.server-ssh-host }}
+        LOCAL_PATH: ${{ inputs.build-dir }}
+        REMOTE_PATH: ${{ inputs.server-ssh-path }}
       run: |
-        echo "Syncing from ./${BUILD_DIR}/ to ${SSH_USER}@${SERVER_HOST}:${REMOTE_PATH}"
+        echo "Syncing from ./${LOCAL_PATH}/ to ${USER}@${HOST}:${REMOTE_PATH}"
         rsync -rltvch --delete --compress --chmod=D2755,F644 -e "ssh -vv" \
-          "./${BUILD_DIR}/" "${SSH_USER}@${SERVER}:${REMOTE_PATH}"
+          "./${LOCAL_PATH}/" "${USER}@${HOST}:${REMOTE_PATH}"
 
     - name: Sync Build to Deployment via FTP
       if: inputs.deploy-mode == 'ftp'
       uses: SamKirkland/FTP-Deploy-Action@v4.3.5
       with:
-        server: ${{ inputs.server-host }}
-        username: ${{ inputs.server-user }}
+        server: ${{ inputs.server-ftp-host }}
+        username: ${{ inputs.server-ftp-user }}
         password: ${{ inputs.server-ftp-password }}
-        local-dir: "./${{ inputs.source-dir }}/"
-        server-dir: ${{ inputs.server-path }}/
-        dry-run: ${{ inputs.ftp-dry-run }}
+        local-dir: './${{ inputs.build-dir }}/'
+        server-dir: '${{ inputs.server-ftp-path }}/'
+        dry-run: ${{ inputs.server-ftp-dry-run }}
