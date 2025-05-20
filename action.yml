@@ -12,9 +12,15 @@ inputs:
     description: "Deployment mode: 'ssh' or 'ftp'."
     required: true
 
+  build-script:
+    description: "Custom command to build the project. Defaults to 'npm run build'."
+    required: false
+    default: ''
+
   build-dir:
     description: "Where the built output lies"
-    required: true
+    required: false
+    default: ''
 
 
   server-ssh-host:
@@ -82,7 +88,30 @@ runs:
           echo "::error::Invalid deploy_mode: ${{ inputs.deploy-mode }}. Must be 'ssh' or 'ftp'."
           exit 1
         fi
-      
+
+    - name: Prepare Build Directory Path
+      shell: bash
+      run: |
+        TEMP_BUILD_DIR="${{ inputs.build-dir }}"
+        
+        if [[ -z "$TEMP_BUILD_DIR" ]]; then
+          TEMP_BUILD_DIR="build"
+        fi
+
+        # Format it: ensure leading ./ and trailing /
+        
+        # Remove existing leading ./ if present to avoid ././
+        TEMP_PATH="${TEMP_BUILD_DIR#./}"
+        TEMP_PATH="${TEMP_PATH#/}"
+        
+        # Remove existing trailing / if present to avoid //
+        TEMP_PATH="${TEMP_PATH%/}"
+
+        FORMATTED_BUILD_DIR="./${TEMP_PATH}/"
+
+        echo "Using build directory: ${FORMATTED_BUILD_DIR}"
+        echo "BUILD_DIR=${FORMATTED_BUILD_DIR}" >> $GITHUB_ENV
+        
     - name: Checkout Repository
       uses: actions/checkout@v4
 
@@ -100,7 +129,14 @@ runs:
     - name: Build the project
       shell: bash
       run: |
-        npm run build
+        SCRIPT="${{ inputs.build-script-name }}"
+        
+        if [[ -z "$SCRIPT_TO_RUN" ]]; then
+          SCRIPT="build"
+        fi
+
+        echo "Running build script: npm run $SCRIPT"
+        npm run "$SCRIPT"
 
     - name: Install rsync (for SSH deploy)
       if: inputs.deploy-mode == 'ssh'
@@ -122,12 +158,12 @@ runs:
       env:
         USER: ${{ inputs.server-ssh-user }}
         HOST: ${{ inputs.server-ssh-host }}
-        LOCAL_PATH: ${{ inputs.build-dir }}
+        LOCAL_PATH: ${{ env.BUILD_DIR }}
         REMOTE_PATH: ${{ inputs.server-ssh-path }}
       run: |
         echo "Syncing from ./${LOCAL_PATH}/ to ${USER}@${HOST}:${REMOTE_PATH}"
         rsync -rltvch --delete --compress --chmod=D2755,F644 -e "ssh -vv" \
-          "./${LOCAL_PATH}/" "${USER}@${HOST}:${REMOTE_PATH}"
+          "${LOCAL_PATH}" "${USER}@${HOST}:${REMOTE_PATH}"
 
     - name: Sync Build to Deployment via FTP
       if: inputs.deploy-mode == 'ftp'
@@ -136,6 +172,6 @@ runs:
         server: ${{ inputs.server-ftp-host }}
         username: ${{ inputs.server-ftp-user }}
         password: ${{ inputs.server-ftp-password }}
-        local-dir: './${{ inputs.build-dir }}/'
+        local-dir: '${{ env.BUILD_DIR }}'
         server-dir: '${{ inputs.server-ftp-path }}/'
         dry-run: ${{ inputs.server-ftp-dry-run }}
