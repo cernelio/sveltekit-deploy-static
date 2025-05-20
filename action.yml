@@ -22,6 +22,11 @@ inputs:
     required: false
     default: ''
 
+  protect:
+    description: "Contents of the htpasswd file"
+    required: false
+    default: ''
+
 
   server-ssh-host:
     description: "Hostname or IP address of the deployment server."
@@ -82,6 +87,10 @@ runs:
             echo "::error::For FTP deploy_mode, server-ftp-host, server-ftp-user and server-ftp-password inputs are required."
             exit 1
           fi
+          if [[ -n "${{ inputs.protect }}" ]]; then
+            echo "::error::HTTP Basic Auth (using 'protect' input) is not supported for FTP deployment mode."
+            exit 1
+          fi
           echo "FTP inputs validated."
         else
           echo "::error::Invalid deploy_mode: ${{ inputs.deploy-mode }}. Must be 'ssh' or 'ftp'."
@@ -128,14 +137,62 @@ runs:
     - name: Build the project
       shell: bash
       run: |
-        SCRIPT="${{ inputs.build-script-name }}"
+        SCRIPT="${{ inputs.build-script }}"
         
-        if [[ -z "$SCRIPT_TO_RUN" ]]; then
+        if [[ -z "$SCRIPT" ]]; then
           SCRIPT="build"
         fi
 
         echo "Running build script: npm run $SCRIPT"
         npm run "$SCRIPT"
+
+    - name: Generate HTTP Basic Auth
+      if: inputs.deploy-mode == 'ssh' && inputs.protect != ''
+      shell: bash
+      env:
+        # BUILD_DIR is available from GITHUB_ENV set in "Prepare Build Directory Path"
+        HTPASSWD_CONTENT: ${{ inputs.protect }}
+        SERVER_SSH_PATH: ${{ inputs.server-ssh-path }}
+      run: |
+        set -e
+        echo "Configuring HTTP Basic Auth in build directory: ${{ env.BUILD_DIR }}"
+
+        HTACCESS_FILE_PATH="${{ env.BUILD_DIR }}.htaccess"
+        HTPASSWD_FILE_PATH="${{ env.BUILD_DIR }}.htpasswd"
+
+        # Clean the server SSH path: remove trailing slashes for use in AuthUserFile
+        # This path is the absolute path on the server where .htpasswd will reside.
+        CLEANED_SERVER_SSH_PATH=$(echo "${SERVER_SSH_PATH}" | sed 's:/*$::')
+
+        HTACCESS_AUTH_CONFIG="<FilesMatch \"(?<!403\\.html|\\.js|\\.css|\\.js\\.br|\\.css\\.br|\\.js\\.gz|\\.css\\.gz|logo\\.png|favicon\\.png)$\">
+        AuthUserFile ${CLEANED_SERVER_SSH_PATH}/.htpasswd
+        AuthName \"Password Protected\"
+        AuthType Basic
+        Order Deny,Allow
+        Deny from all
+        Satisfy any
+        Require valid-user
+        </FilesMatch>"
+
+        echo "Writing .htpasswd file to ${HTPASSWD_FILE_PATH}"
+        # Using printf for safer writing of potentially complex string content
+        printf "%s\n" "${HTPASSWD_CONTENT}" > "${HTPASSWD_FILE_PATH}"
+
+        echo "Updating .htaccess file at ${HTACCESS_FILE_PATH}"
+        if [[ -f "${HTACCESS_FILE_PATH}" ]]; then
+          # Prepend the auth config to the existing .htaccess content
+          EXISTING_HTACCESS_CONTENT=$(cat "${HTACCESS_FILE_PATH}")
+          # Use a temporary file to ensure atomic update and handle special characters
+          TMP_HTACCESS_FILE=$(mktemp)
+          echo -e "${HTACCESS_AUTH_CONFIG}\n\n${EXISTING_HTACCESS_CONTENT}" > "${TMP_HTACCESS_FILE}"
+          mv "${TMP_HTACCESS_FILE}" "${HTACCESS_FILE_PATH}"
+          echo ".htaccess updated by prepending auth rules."
+        else
+          # Create a new .htaccess file with the auth config
+          echo -e "${HTACCESS_AUTH_CONFIG}" > "${HTACCESS_FILE_PATH}"
+          echo ".htaccess created with auth rules."
+        fi
+        echo "HTTP Basic Auth configuration complete."
 
     - name: Install rsync (for SSH deploy)
       if: inputs.deploy-mode == 'ssh'
