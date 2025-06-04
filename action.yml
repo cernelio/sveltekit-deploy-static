@@ -27,6 +27,10 @@ inputs:
     required: false
     default: ''
 
+  environment:
+    description: "Environment variables content to write to /env/.env file"
+    required: false
+    default: ''
 
   server-ssh-host:
     description: "Hostname or IP address of the deployment server."
@@ -133,6 +137,23 @@ runs:
       shell: bash
       run: |
         npm ci
+
+    - name: Create Environment File
+      shell: bash
+      run: |   
+        # Write the environment variables content to /env/.env
+        if [[ -n "${{ inputs.environment }}" ]]; then          
+          echo "Creating /env/.env file with provided environment variables"
+
+          # Create the /env directory if it doesn't exist
+          mkdir -p env
+          
+          echo "${{ inputs.environment }}" > env/.env
+          
+          echo "Environment file created successfully"
+        else
+          echo "No environment variables provided, skipping step."
+        fi
 
     - name: Build the project
       shell: bash
